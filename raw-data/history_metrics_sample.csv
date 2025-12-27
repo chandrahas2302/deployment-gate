@@ -1,0 +1,5 @@
+build_id,past_failures_5,rollback_count_30d,service_criticality
+101,1,0,3
+102,2,1,4
+103,3,1,4
+104,1,0,3

@@ -8,6 +8,9 @@ from app.metrics.github_collector import collect_metrics_from_github
 from inference.model import DeploymentRiskModel
 from auth import verify_api_key
 
+from app.metrics.collector import collect_pipeline_metrics
+
+
 app = FastAPI(
     title="Deployment Gate - Risk Prediction API",
     description="Predicts deployment failure risk using CI/CD pipeline metrics",
@@ -37,13 +40,13 @@ def health():
 @app.post("/predict", response_model=RiskResponse)
 def predict_risk(
     context: PipelineContext,
-    _: None = Depends(verify_api_key),  # API authorization only
+    _: None = Depends(verify_api_key),
 ):
     try:
-        # Optional GitHub token (can be None)
         github_token = os.getenv("GITHUB_TOKEN")
 
-        metrics = collect_metrics_from_github(
+        # ✅ 1. Collect GitHub metrics
+        github_metrics = collect_metrics_from_github(
             context.model_dump(),
             token=github_token
         )
@@ -51,6 +54,20 @@ def predict_risk(
       
 
 
+        # ✅ 2. Collect pipeline / repo metrics
+        pipeline_metrics = collect_pipeline_metrics(
+            context.model_dump()
+        )
+
+        # ✅ 3. Merge BOTH (pipeline overrides GitHub if overlap)
+        metrics = {**github_metrics, **pipeline_metrics}
+
+        # ✅ 4. Safety check (never fail silently again)
+        missing = set(risk_model.features) - set(metrics.keys())
+        if missing:
+            raise ValueError(f"Missing model features: {missing}")
+
+        # ✅ 5. Predict risk
         risk_score = risk_model.predict_risk(metrics)
 
         decision = (

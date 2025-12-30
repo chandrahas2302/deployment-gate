@@ -48,12 +48,7 @@ def predict_risk(
             token=github_token
         )
 
-         pipeline_metrics = collect_pipeline_metrics(
-            context.model_dump()
-        )
-
-        # ✅ MERGE BOTH
-        metrics = {**github_metrics, **pipeline_metrics}
+      
 
 
         risk_score = risk_model.predict_risk(metrics)

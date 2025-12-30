@@ -1,6 +1,10 @@
 from fastapi import FastAPI,HTTPException
 from app.schemas import PipelineMetrics, RiskResponse
 from inference.model import DeploymentRiskModel
+from app.metrics.collector import collect_pipeline_metrics
+from app.metrics.schema import PipelineContext
+from fastapi import Header
+from app.metrics.github_collector import collect_metrics_from_github
 import logging
 
 app =FastAPI(
@@ -23,9 +27,18 @@ def health():
     return {"status":"ok"}
 
 @app.post("/predict", response_model=RiskResponse)
-def predict_risk(metrics: PipelineMetrics):
+def predict_risk(
+    context: PipelineContext,
+    authorization: str = Header(...)):
     try:
-        risk_score = risk_model.predict_risk(metrics.model_dump())
+        token = authorization.replace("Bearer ", "")
+
+        metrics = collect_metrics_from_github(
+            context.model_dump(),
+            token
+        )
+
+        risk_score = risk_model.predict_risk(metrics)
 
         decision = (
             "BLOCK" if risk_score >= 0.8
@@ -33,22 +46,13 @@ def predict_risk(metrics: PipelineMetrics):
             else "ALLOW"
         )
 
-        logger.info(
-            f"Prediction completed | risk_score={risk_score:.4f} | decision={decision}"
-        )
+        return {
+            "risk_score": round(risk_score, 4),
+            "decision": decision
+        }
 
-        return RiskResponse(
-            risk_score=round(risk_score, 4),
-            decision=decision
-        )
-
-    except ValueError as e:
-        logger.warning(f"Validation error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-
-    except Exception as e:
-        logger.exception("Prediction failed")
+    except Exception:
         raise HTTPException(
             status_code=500,
-            detail="Internal server error during prediction"
+            detail="Failed to evaluate deployment risk"
         )

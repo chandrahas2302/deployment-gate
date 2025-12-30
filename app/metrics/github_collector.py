@@ -1,29 +1,40 @@
-from app.github.client import gh_get
 from datetime import datetime
+from typing import Optional
+from app.github.client import gh_get
 
-def collect_metrics_from_github(ctx: dict, token: str) -> dict:
+def collect_metrics_from_github(
+    ctx: dict,
+    token: Optional[str] = None
+) -> dict:
     owner, repo = ctx["repo"].split("/")
 
-    # Workflow jobs
-    jobs = gh_get(
+    jobs_resp = gh_get(
         f"/repos/{owner}/{repo}/actions/runs/{ctx['run_id']}/jobs",
         token
-    )["jobs"]
+    )
+    jobs = jobs_resp.get("jobs", [])
 
     total_tasks = len(jobs)
-    failed_tasks = sum(1 for j in jobs if j["conclusion"] == "failure")
+    failed_tasks = sum(
+        1 for j in jobs if j.get("conclusion") == "failure"
+    )
 
-    # Commits
     commits = gh_get(
         f"/repos/{owner}/{repo}/commits?sha={ctx['branch']}&per_page=20",
         token
     )
 
-    # Repo metadata
-    repo_meta = gh_get(f"/repos/{owner}/{repo}", token)
+    repo_meta = gh_get(
+        f"/repos/{owner}/{repo}",
+        token
+    )
 
-    created = datetime.fromisoformat(repo_meta["created_at"][:-1])
-    pushed = datetime.fromisoformat(repo_meta["pushed_at"][:-1])
+    created = datetime.fromisoformat(
+        repo_meta["created_at"].replace("Z", "")
+    )
+    pushed = datetime.fromisoformat(
+        repo_meta["pushed_at"].replace("Z", "")
+    )
 
     return {
         "total_tasks": total_tasks,
@@ -36,5 +47,5 @@ def collect_metrics_from_github(ctx: dict, token: str) -> dict:
             repo_meta["stargazers_count"] /
             max(repo_meta["forks_count"], 1)
         ),
-        "is_production": int(ctx["branch"] in ["main", "master"])
+        "is_production": int(ctx["branch"] in ["main", "master"]),
     }

@@ -1,41 +1,51 @@
-from fastapi import FastAPI,HTTPException
-from app.schemas import PipelineMetrics, RiskResponse
-from inference.model import DeploymentRiskModel
-from app.metrics.collector import collect_pipeline_metrics
-from app.metrics.schema import PipelineContext
-from fastapi import Header
-from app.metrics.github_collector import collect_metrics_from_github
 import logging
+import os
+from fastapi import FastAPI, HTTPException, Depends
 
-app =FastAPI(
-    title = "Deployment Gate- Risk Predicition API",
+from app.schemas import RiskResponse
+from app.metrics.schema import PipelineContext
+from app.metrics.github_collector import collect_metrics_from_github
+from inference.model import DeploymentRiskModel
+from auth import verify_api_key
+
+app = FastAPI(
+    title="Deployment Gate - Risk Prediction API",
     description="Predicts deployment failure risk using CI/CD pipeline metrics",
-    version="1.0.0"
+    version="1.0.0",
 )
+
+# ---------- Logging ----------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-try: 
+# ---------- Load ML Model ----------
+try:
     risk_model = DeploymentRiskModel()
     logger.info("Model loaded successfully")
 except Exception as e:
     logger.exception("Model loading failed")
-    raise RuntimeError("Failed to load deployment risk mdoel") from e
+    raise RuntimeError("Failed to load deployment risk model") from e
 
+
+# ---------- Health Check ----------
 @app.get("/health")
 def health():
-    return {"status":"ok"}
+    return {"status": "ok"}
 
+
+# ---------- Prediction Endpoint ----------
 @app.post("/predict", response_model=RiskResponse)
 def predict_risk(
     context: PipelineContext,
-    authorization: str = Header(...)):
+    _: None = Depends(verify_api_key),  # API authorization only
+):
     try:
-        token = authorization.replace("Bearer ", "")
+        # Optional GitHub token (can be None)
+        github_token = os.getenv("GITHUB_TOKEN")
 
         metrics = collect_metrics_from_github(
             context.model_dump(),
-            token
+            token=github_token
         )
 
         risk_score = risk_model.predict_risk(metrics)
@@ -47,12 +57,13 @@ def predict_risk(
         )
 
         return {
-            "risk_score": round(risk_score, 4),
-            "decision": decision
+            "risk_score": round(float(risk_score), 4),
+            "decision": decision,
         }
 
-    except Exception:
+    except Exception as e:
+        logger.exception("Risk evaluation failed")
         raise HTTPException(
             status_code=500,
-            detail="Failed to evaluate deployment risk"
+            detail="Failed to evaluate deployment risk",
         )

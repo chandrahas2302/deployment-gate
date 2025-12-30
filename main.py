@@ -65,5 +65,5 @@ def predict_risk(
         logger.exception("Risk evaluation failed")
         raise HTTPException(
             status_code=500,
-            detail="Failed to evaluate deployment risk",
+            detail=str(e)
         )
